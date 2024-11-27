@@ -1,38 +1,38 @@
 
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
 public class BallController : MonoBehaviour
 {
+    public List<int> ballsNumList { get; private set; }
+
+    [SerializeField] RectTransform[] ballParentArray;
+
+    private TableSettings settings;
     private bool isHorizontal;
-
-    [Header("Balls Animation")]
-
-    [SerializeField] float newBallAnimDuration;
-    [SerializeField] float ballMovingDuration;
-
-    [Header("Other")]
-
-    private BallGenerator ballGen;
     private List<BallObject> ballsList;
-
-    private BallNumberGenerator ballNum;
-    private List<int> ballsNumList;
     private int nextBallNumber;
 
-    public void Init()
+    public void Init(TableSettings _settings)
     {
-        ballNum = GetComponent<BallNumberGenerator>();
-        ballGen = GetComponent<BallGenerator>();
+        settings = _settings;
 
         ballsList = new List<BallObject>();
     }
 
     #region Numbers
 
+    public void SetListOfNumbers(int[] list)
+    {
+        ResetBalls();
+        ballsNumList = TableCalculations.SetNewNumbersArray(list);
+    }
+
     public void GetTutorialListOfNumbers(int[] list)
     {
+        ResetBalls();
         ballsNumList = new List<int>();
 
         for (int i = 0; i < list.Length; i++)
@@ -40,14 +40,6 @@ public class BallController : MonoBehaviour
             ballsNumList.Add(list[i]);
         }
     }
-    
-    public void SetListOfNumbers(int[] list)
-    {
-        ballNum.SetNewNumbersArray(list);
-        ballsNumList = ballNum.GetNumbersList();
-    }
-    
-    public int GetBallsLeft() { return ballsNumList.Count; }
     #endregion
 
     #region Generator
@@ -55,9 +47,7 @@ public class BallController : MonoBehaviour
     public void GenerateNewBall()
     {
         MoveBalls();
-        BallObject ball = ballGen.GenerateNewBall(isHorizontal, GetNextBallNumber());
-        ballsList.Add(ball);
-        BallAnimation.GetNewBallAnimation(ball, newBallAnimDuration);
+        GenerateNewBall(isHorizontal, GetNextBallNumber());
         CheckExcessBalls();
     }
 
@@ -86,21 +76,34 @@ public class BallController : MonoBehaviour
             return true;
     }
 
-    public void GetCardsCount(int count)
+    public void SetCardsCount(int count)
     {
-        if (count <= 2)
-        {
-            isHorizontal = true;
-        }
-        else
-        {
-            isHorizontal = false;
-        }
+        isHorizontal = count <= 2;
+
+        Debug.Log("Balls are horizontal = " + isHorizontal);
+    }
+
+    public void GenerateNewBall(bool isHorizontal, int number)
+    {
+        string[] lettersArray = new string[] { "B", "I", "N", "G", "O" };
+        int n = (int)(number / 15.1f);
+        Sprite sprite = settings.ballsSprites[n];
+        Color color = settings.textColors[n];
+        string letter = lettersArray[n];
+
+        BallObject newBall = isHorizontal ? Instantiate(settings.ballPrefab, ballParentArray[0]) : Instantiate(settings.ballPrefab, ballParentArray[1]);
+        newBall.transform.localScale = new Vector3(0, 0, 0);
+        newBall.SetBall(letter, color, number, sprite);
+        ballsList.Add(newBall);
+
+        float ballScale = isHorizontal ? 1 : 0.8f;
+
+        BallAnimation.GetNewBallAnimation(newBall, ballScale, settings.ballAppearSpeed);
     }
 
     private void CheckExcessBalls()
     {
-        if(ballsList.Count > 5)
+        if (ballsList.Count > 5)
         {
             BallAnimation.HideBall(ballsList[0], 0.3f);
             StartCoroutine(RemoveBall());
@@ -116,11 +119,11 @@ public class BallController : MonoBehaviour
 
     private void MoveBalls()
     {
-        if(ballsList.Count > 0)
+        if (ballsList.Count > 0)
         {
             for (int i = 0; i < ballsList.Count; i++)
             {
-                BallAnimation.MoveBall(ballsList[i], ballMovingDuration, isHorizontal);
+                BallAnimation.MoveBall(ballsList[i], settings.ballMoveSpeed, isHorizontal);
             }
         }
     }

@@ -5,8 +5,15 @@ using System.Collections.Generic;
 
 public class CardNumbers : MonoBehaviour
 {
+    [Header("Text Settings")]
+
     [SerializeField] TMP_FontAsset fontWithBorder;
     [SerializeField] TMP_FontAsset fontWithoutBorder;
+
+    [SerializeField] Color textColorBlack;
+    [SerializeField] Color textColorWhite;
+
+    [Header("Column Links")]
 
     public CardColumn columnB;
     public CardColumn columnI;
@@ -168,54 +175,27 @@ public class CardNumbers : MonoBehaviour
         return values;
     }
    
-    //private int[] RandomizeNumbers(int minValue, int maxValue)
-    //{
-    //    int[] values = new int[5];
-
-    //    for (int i = 0; i < values.Length; i++)
-    //    {
-    //        bool contains;
-    //        int next;
-
-    //        do
-    //        {
-    //            next = Random.Range(minValue, maxValue);
-    //            contains = false;
-
-    //            for (int index = 0; index < i; index++)
-    //            {
-    //                int n = values[index];
-    //                if (n == next)
-    //                {
-    //                    contains = true;
-    //                    break;
-    //                }
-    //            }
-    //        }
-
-    //        while (contains);
-
-    //        values[i] = next;
-    //    }
-
-    //    return values;
-    //}
-   
     public int[] GetNumbersArray() { return cardNumbersArray; }
 
-    
     public void ResetNumbersVisibility()
     {
         foreach (TextMeshProUGUI text in numbersTextArray)
         {
             text.gameObject.SetActive(true);
             text.font = fontWithoutBorder;
+            text.color = textColorBlack;
         }
     }
 
     public void TurnOffTextNum(int num) { numbersTextArray[num].gameObject.SetActive(false); }
     
-    public void SetTextBorder(int num) { numbersTextArray[num].font = fontWithBorder; }
+    public void SetTextBorder(int num) 
+    {
+        numbersTextArray[num].font = fontWithBorder; 
+        numbersTextArray[num].color = textColorWhite;
+    }
+
+    #region Tutorial
 
     public void SetTutorialNumbers()
     {
@@ -251,4 +231,5 @@ public class CardNumbers : MonoBehaviour
                 cardNumbersArray[s] = o[s - 20];
         }
     }
+    #endregion
 }

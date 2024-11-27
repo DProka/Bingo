@@ -2,105 +2,94 @@
 using System.Collections;
 using UnityEngine;
 using DG.Tweening;
+using System;
 
 public class DesignManager : MonoBehaviour
 {
     [Header("Main Settings")]
 
-    [SerializeField] GeneralSave generalSave;
-    [SerializeField] RoomSave roomSave;
-    [SerializeField] RoomDesignBase roomBase;
     [SerializeField] Transform designManagerObject;
-
-    private UIController uiController;
-    private bool isActive;
-    private Vector3 managerStartPosition;
+    [SerializeField] Canvas mainCanvas;
 
     [Header("Room")]
 
     [SerializeField] float zoomSpeed = 0.4f;
     [SerializeField] RoomPrefabScript[] roomPrefabArray;
-
-    public int activeRoomNumber;
-    public int roomTierProgress;
-
-    public int[] openedRoomObjects;
+    [SerializeField] RoomPrefabSettings[] roomSettingsArray;
 
     [Header("Object Menu")]
 
     [SerializeField] RoomObjectMenu objectMenu;
-    private string lastKey;
-    private RoomObjectScript lastRoomObject;
 
-    [Header("Buy Animation")]
+    //[Header("Buy Animation")]
 
-    [SerializeField] UIPileReward buyPile;
+    //[SerializeField] Transform moneyPileStartPos;
 
     [Header("Tutorial")]
 
     [SerializeField] TutorialBuyButton[] tutorButtonsArray;
-    private int tutorialProgress = 0;
+
+    private UIController uiController;
+    private bool isActive;
+
+    private int roomsOrder;
+
+    public static Action<int, int> updateRoomCash;
+
+    private RoomPrefabScript currentRoom;
+    private int activeRoomNumber;
+    public int[] openedRoomObjects;
+
+    private int lastID;
+
+    private Transform lastRoomObjectPos;
+    private int objMenuCallCount;
 
     public void Init(UIController controller)
     {
         uiController = controller;
-        roomTierProgress = 0;
+        objMenuCallCount = 0;
 
-        managerStartPosition = designManagerObject.position;
+        updateRoomCash += UpdateCurrentRoomCash;
+        EventBus.onRewardedADClosed += GetRewardObject;
 
-        LoadRoomProgress();
-        LoadRoomPrefab();
-        
+        CheckVersion();
+        LoadRoom();
+
         objectMenu.Init(this);
-        buyPile.Init();
-
-        tutorialProgress = 0;
-
-        CheckGeneralProgress();
     }
 
-    public void SwitchManagerActive(bool _isActive) 
-    { 
+    public void SwitchManagerActive(bool _isActive)
+    {
         isActive = _isActive;
         SwitchBuyButtons(isActive);
 
-        Debug.Log($"Design manager {isActive}");
+        //Debug.Log($"Design manager {isActive}");
     }
 
     public void SwitchBuyButtons(bool isActive)
     {
-        roomPrefabArray[activeRoomNumber].SwitchActiveButtons(isActive);
+        currentRoom.SwitchActiveButtons(isActive);
 
-        foreach(TutorialBuyButton button in tutorButtonsArray)
+        foreach (TutorialBuyButton button in tutorButtonsArray)
         {
-            button.gameObject.SetActive(isActive);
+            button.SetActive(isActive);
         }
     }
 
     public bool GetManagerStatus() { return isActive; }
 
-    private void LoadRoomPrefab()
+    public void SwitchCurrentRoom()
     {
-        //LoadRoomProgress();
+        if (activeRoomNumber < roomPrefabArray.Length - 1)
+            activeRoomNumber += 1;
 
-        if (GameController.tutorialIsActive)
-        {
-            activeRoomNumber = 0;
-            roomTierProgress = 0;
-        }
-
-        roomPrefabArray[activeRoomNumber].Init(this, roomSave.GetTierProgress());
-        
-        if(openedRoomObjects.Length == 1)
-            openedRoomObjects = new int[roomPrefabArray[activeRoomNumber].GetObjectsCount()];
-        
-        roomPrefabArray[activeRoomNumber].LoadRoomPrefab(roomTierProgress, openedRoomObjects);
+        GeneralSave.Instance.UpdateRoomNum(activeRoomNumber);
+        LoadRoom();
     }
 
     private void SwitchRoomZoom(bool zoomIn, Transform objectPos)
     {
-        managerStartPosition = designManagerObject.position;
-
         if (zoomIn)
         {
             designManagerObject.DOScale(1.2f, zoomSpeed);
@@ -126,137 +115,227 @@ public class DesignManager : MonoBehaviour
 
     #region Progress
 
-    public void CheckGeneralProgress() 
+    public void CheckGeneralProgress() { currentRoom.CheckTierIsOpen(); }
+
+    public void ActivateNewRoom()
     {
-        roomPrefabArray[activeRoomNumber].ActivateTier(roomTierProgress + 1);
+        SwitchManagerActive(false);
+        GameController.tutorialManager.CallStepNewRoom();
     }
 
-    private void CheckTierProgress(int tier)
+    public void CheckRoomPassed() => StartCoroutine(CheckObjectsPurchased());
+
+    private IEnumerator CheckObjectsPurchased()
     {
-        if(roomPrefabArray[activeRoomNumber].GetTierOpenStatus(roomTierProgress))
+        if (currentRoom.CheckObjectsPurchased() && activeRoomNumber + 1 < roomPrefabArray.Length)
         {
-            roomTierProgress = tier;
-            CheckGeneralProgress();
+            yield return new WaitForSeconds(1f);
+
+            ActivateNewRoom();
         }
+    }
+
+    private void UpdateCurrentRoomCash(int coins, int money)
+    {
+        int[] cash = new int[] { coins, money };
+        currentRoom.UpdateRoomCash(cash);
     }
     #endregion
 
-    #region Objects
+    #region Buy Object
 
     public void BuyObject(RoomObjectScript currentObj, int price)
     {
-        if (!objectMenu.GetStatus() && isActive)
+        if (!objectMenu.isOpen && isActive)
         {
-            if(generalSave.GetMoney() >= price)
+            if (GameController.Instance.playerMoney >= price)
             {
-                generalSave.CalculateMoney(false, price);
-                roomTierProgress = currentObj.GetTier();
-                UpdateRoomProgress();
-
+                //GameController.updatePlayerMoney?.Invoke(-price);
+                GameController.Instance.CalculateMoney(-price);
                 uiController.UpdateMainUI();
                 StartCoroutine(OpenNewObject(currentObj));
             }
             else
             {
-                uiController.OpenNoMoney();
+                UIController.Instance.CallScreen(UIController.Menu.NoMoneyScreen);
             }
         }
     }
 
     private IEnumerator OpenNewObject(RoomObjectScript currentObj)
     {
-        SetLastRoomObj(currentObj);
-        buyPile.SetFinishPosition(currentObj.GetBuyButtonPosition());
-        buyPile.StartBuyPileAnimation();
+        currentObj.SwitchButtonCanBeClicked(false);
+        UIAnimationScreen.Instance.StartBuyObjAnimation(currentObj.GetBuyButtonPosition());
 
         yield return new WaitForSeconds(2f);
 
-        currentObj.SetIsOpen(true);
-        CheckTierProgress(currentObj.GetTier());
-        CallObjectMenu(currentObj);
+        currentObj.SetObjectStatus(RoomObjectScript.Status.isPurchased);
+        CheckGeneralProgress();
+        CallObjectMenu(currentObj, true);
+        currentObj.SwitchButtonCanBeClicked(true);
+
+        if (GameController.tutorialIsActive)
+            GameController.tutorialManager.OpenFloorColorScreen();
     }
 
-    public void CallObjectMenu(RoomObjectScript currentObj)
+    public RoomPrefabScript GetCurrentRoom() { return currentRoom; }
+    #endregion
+
+    #region Object Menu
+
+    public void CallObjectMenu(RoomObjectScript currentObj, bool isFirstTime)
     {
-        if(lastKey != currentObj.GetKey() && isActive)
+        if (isActive)
         {
-            if (!objectMenu.GetStatus())
+            if (!objectMenu.isOpen)
             {
-                lastKey = currentObj.GetKey();
-                objectMenu.SetSprites(roomBase.GetArrayByKey(lastKey));
-                objectMenu.SetKey(lastKey);
-                objectMenu.OpenMain();
-                uiController.HideMainMenuInterface(true);
+                SwitchManagerActive(false);
+                lastID = currentObj.id;
+                lastRoomObjectPos = currentObj.transform;
+                objectMenu.OpenMain(isFirstTime, currentObj.GetShortSprites(), currentObj._isAD, roomPrefabArray[activeRoomNumber].spritesArray[currentObj.id]);
+
+                EventBus.onWindowOpened?.Invoke();
+
+                if (GameController.tutorialIsActive && GameController.tutorialManager.GetRoomProgress() == 5)
+                    GameController.tutorialManager.CloseWallsScreen();
+
                 SwitchRoomZoom(true, currentObj.transform);
                 SwitchBuyButtons(false);
             }
         }
     }
 
-    public void UpdateObjectSprite(string key, int spriteNum, Sprite sprite)
-    {
-        if (isActive)
-        {
-            roomPrefabArray[activeRoomNumber].UpdateObjectSprite(key, spriteNum, sprite);
-            lastRoomObject = roomPrefabArray[activeRoomNumber].GetRoomObject(key);
-        }
-    }
-
-    public void UpdateRoomObjectsArray(int tier, int spritenum)
-    {
-        openedRoomObjects[tier - 1] = spritenum;
-    }
+    public void UpdateObjectSprite(int spriteNum) => currentRoom.UpdateObjectSprite("", lastID, spriteNum);
 
     public void ConfirmSprite()
     {
-        uiController.HideMainMenuInterface(false);
+        SoundController.Instance.PlaySound(SoundController.Sound.SetChest);
         StartCoroutine(objectMenu.CloseWindow());
-        SwitchRoomZoom(false, lastRoomObject.transform);
-        SwitchBuyButtons(true);
-        lastKey = " ";
+        SwitchRoomZoom(false, lastRoomObjectPos.transform);
+        SwitchManagerActive(true);
 
-        if (GameController.tutorialIsActive)
+        if (GameController.tutorialManager.GetRoomProgress() == 4)
+            GameController.tutorialManager.UpdateRoomProgress(5);
+
+        else if (GameController.tutorialManager.GetRoomProgress() == 5)
         {
-            if (tutorialProgress == 0)
-                GameController.tutorialManager.UpdateTutorialProgress(10);
+            if (roomPrefabArray[activeRoomNumber].currentTier >= 3)
+                GameController.tutorialManager.UpdateRoomProgress(6);
 
-            else if (tutorialProgress == 1)
-                GameController.tutorialManager.UpdateTutorialProgress(11);
-
-            tutorialProgress++;
+            if (roomPrefabArray[activeRoomNumber].currentTier == 2)
+                GameController.tutorialManager.UpdateRoomProgress(5);
         }
 
-        UpdateRoomProgress();
-    }
+        EventBus.onWindowClosed?.Invoke();
 
-    public void SetLastRoomObj(RoomObjectScript obj) { lastRoomObject = obj; }
+        currentRoom.SavePrefab();
+
+        objMenuCallCount++;
+        if (objMenuCallCount >= 10)
+        {
+            GoogleReviewManager.callRequestReview?.Invoke();
+            objMenuCallCount = 0;
+        }
+
+        CheckRoomPassed();
+    }
     #endregion
 
-    #region Save/Load
+    #region Objects
 
-    private void UpdateRoomProgress()
+    public int GetCurrentObjectSpriteByNum(int num) { return roomPrefabArray[activeRoomNumber].spritesArray[num]; }
+
+    private void GetRewardObject(string location)
     {
-        roomSave.SetActiveRoom(activeRoomNumber);
-        roomSave.SetTierProgress(roomTierProgress);
-        roomSave.SetRoomProgress(activeRoomNumber, openedRoomObjects);
-    }
-
-    private void LoadRoomProgress() 
-    {
-        activeRoomNumber = roomSave.GetActiveRoom();
-        roomTierProgress = roomSave.GetTierProgress();
-        openedRoomObjects = roomSave.GetRoomProgress(activeRoomNumber);
-
-        //if(openedRoomObjects.Length == 0)
-        //    openedRoomObjects = new int[roomPrefabArray[activeRoomNumber].GetObjectsCount()];
+        if (location == "ADPet")
+        {
+            uiController.UpdateMainUI();
+            roomPrefabArray[activeRoomNumber].PurchaseADObject();
+            SwitchManagerActive(true);
+            CallObjectMenu(roomPrefabArray[activeRoomNumber].GetADObject(), true);
+        }
     }
 
     #endregion
 
     #region Main Window
 
-    public void OpenMain() { gameObject.SetActive(true); }
-    
-    public void CloseMain() { gameObject.SetActive(false); }
+    public void OpenMain()
+    {
+        SwitchManagerActive(true);
+        mainCanvas.enabled = true;
+    }
+
+    public void CloseMain()
+    {
+        SwitchManagerActive(false);
+        mainCanvas.enabled = false;
+    }
     #endregion
+
+    #region Save/Load
+
+    public void SetFirebaseSettings()
+    {
+        for (int i = 0; i < roomPrefabArray.Length; i++)
+        {
+            roomPrefabArray[i].SetObjectsPrices(GameController.Instance.firebaseController.roomsPricesArray[i]);
+        }
+    }
+
+    private void LoadRoom()
+    {
+        for (int i = 0; i < roomPrefabArray.Length; i++)
+        {
+            roomPrefabArray[i].Init(this, roomSettingsArray[i].GetPricesArray());
+            roomPrefabArray[i].gameObject.SetActive(false);
+        }
+
+        activeRoomNumber = GeneralSave.Instance.currentRoomNum;
+        currentRoom = roomPrefabArray[activeRoomNumber];
+        currentRoom.gameObject.SetActive(true);
+    }
+
+    public void ResetSave()
+    {
+        activeRoomNumber = 0;
+
+        foreach (RoomPrefabScript room in roomPrefabArray)
+        {
+            room.ResetSave();
+        }
+    }
+
+    private void CheckVersion()
+    {
+
+        if (PlayerPrefs.HasKey("PlayerVersion"))
+            roomsOrder = PlayerPrefs.GetInt("PlayerVersion");
+
+        else
+        {
+            if (GeneralSave.Instance.playerLvl > 0)
+                roomsOrder = 0;
+            else
+                roomsOrder = 1;
+        }
+
+        PlayerPrefs.SetInt("PlayerVersion", roomsOrder);
+
+        Debug.Log("Player Design Manager Ver: " + roomsOrder);
+
+        if (roomsOrder == 1)
+        {
+            RoomPrefabScript[] roomPrefabArray2 = new RoomPrefabScript[] { roomPrefabArray[1], roomPrefabArray[0] };
+            roomPrefabArray = roomPrefabArray2;
+        }
+    }
+
+    #endregion
+
+    private void OnDestroy()
+    {
+        updateRoomCash -= UpdateCurrentRoomCash;
+        EventBus.onRewardedADClosed -= GetRewardObject;
+    }
 }

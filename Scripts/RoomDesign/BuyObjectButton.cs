@@ -1,35 +1,86 @@
-
+﻿
 using UnityEngine;
+using UnityEngine.UI;
 using DG.Tweening;
 using TMPro;
 
 public class BuyObjectButton : MonoBehaviour
 {
+    [Header("Main Links")]
+
     [SerializeField] GameObject mainObject;
     [SerializeField] GameObject mainButton;
-    [SerializeField] GameObject buyButton;
+    
+    [SerializeField] Image buyButtonImg;
+    [SerializeField] GameObject buyButtonObj;
+    [SerializeField] Image mainButtonImage;
+    
+    [Header("Font")]
+
+    [SerializeField] TMP_FontAsset priceFont;
     [SerializeField] TextMeshProUGUI priceText;
+    [SerializeField] float fontSize;
 
-    private bool isOpen;
     private RoomObjectScript roomObject;
+    private bool isOpen;
+    private bool isAd = false;
+    private bool canBeClicked;
 
-    public void Init(RoomObjectScript script)
+    public void Init(RoomObjectScript script, Sprite buttonSprite, int price, bool _isAd)
     {
         roomObject = script;
-        buyButton.transform.localScale = new Vector3(0, 1, 0);
-        isOpen = false;
+        isAd = _isAd;
+
+        if(priceText != null)
+        {
+            priceText.font = priceFont;
+            priceText.fontSize = fontSize;
+            priceText.text = $"{price}";
+        }
+
+        SwitchOffButton();
+        mainButtonImage.sprite = buttonSprite;
+    }
+    
+    public void OnMouseDown()
+    {
+        if (canBeClicked)
+        {
+            Vector3 mousePos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
+            Vector3 objectPos = transform.position;
+
+            if (!isOpen)
+            {
+                SwitchButton();
+            }
+            else
+            {
+                if (mousePos.x < objectPos.x)
+                {
+                    SwitchButton();
+                }
+                else
+                {
+                    BuyObject();
+                }
+            }
+
+            SoundController.Instance.PlaySound(SoundController.Sound.ButtonClick1);
+        }
     }
 
     public void SwitchButton()
     {
         if (!isOpen)
         {
-            buyButton.transform.DOScaleX(1, 0.2f);
+            buyButtonImg.DOFillAmount(1, 0.2f);
+            buyButtonObj.transform.DOScaleX(1, 0.2f);
             isOpen = true;
         }
         else
         {
-            buyButton.transform.DOScaleX(0, 0.2f);
+            buyButtonImg.DOFillAmount(0, 0.2f);
+            buyButtonObj.transform.DOScaleX(0, 0.2f);
             isOpen = false;
         }
     }
@@ -38,18 +89,34 @@ public class BuyObjectButton : MonoBehaviour
     {
         if (isOpen)
         {
-            roomObject.BuyObject();
+            if (isAd)
+            {
+                roomObject.BuyObject();
+            }
+            else
+            {
+                BuyAdObject();
+            }
+
             SwitchButton();
         }
     }
 
-    public void SetActive(bool isActive)
-    {
-        mainObject.SetActive(isActive);
-    }
+    public void SwitchCanBeClicked(bool _canBeClicked) { canBeClicked = _canBeClicked; }
 
-    public void SetPrice(int price) { priceText.text = $"{price}"; }
+    public void SetActive(bool isActive) { mainObject.SetActive(isActive); }
 
     public Vector3 GetPosition() { return mainButton.transform.position; }
 
+    private void BuyAdObject()
+    {
+        roomObject.BuyObject();
+    }
+
+    private void SwitchOffButton()
+    {
+        buyButtonImg.DOFillAmount(0, 0.2f);
+        buyButtonObj.transform.DOScaleX(0, 0.2f);
+        isOpen = false;
+    }
 }

@@ -1,11 +1,14 @@
 
-using UnityEngine;
-
-public class PlayerSettings : MonoBehaviour
+public class PlayerSettings
 {
     public int voice;
-    public int music;
-    public int sound;
+    public int music { get; private set; }
+    public int sound { get; private set; }
+
+    public int currentBackgroundNum { get; private set; }
+
+    public int lastBid { get; private set; }
+    public int cardsTutorial { get; private set; }
 
     public int gameLanguage;
 
@@ -13,55 +16,50 @@ public class PlayerSettings : MonoBehaviour
 
     #region Edit Settings
 
-    public void SetVoice(bool isOn)
+    public void SaveSettings(bool _music, bool _sound)
     {
-        if (isOn)
-            voice = 1;
-        else
-            voice = 0;
+        music = _music ? 1 : 0;
+        sound = _sound ? 1 : 0;
 
         Save();
     }
-    
-    public void SetMusic(bool isOn)
-    {
-        if (isOn)
-            music = 1;
-        else
-            music = 0;
 
+    public int[] GetSettings()
+    {
+        return new int[] { music, sound };
+    }
+
+    public void SaveBackGround(int num)
+    {
+        currentBackgroundNum = num;
         Save();
     }
-    
-    public void SetSound(bool isOn)
-    {
-        if (isOn)
-            sound = 1;
-        else
-            sound = 0;
 
+    public void SaveLastBid(int bid, int tutorial)
+    {
+        lastBid = bid;
+        cardsTutorial = tutorial;
         Save();
     }
-    
-    public void SetLanguage(int number)
-    {
-        gameLanguage = number;
 
-        Save();
-    }
     #endregion
 
     #region Save Load
 
     public void ResetSave()
     {
-        PlayerSettings player = new PlayerSettings();
+        SaveData.PlayerSettingsData player = new SaveData.PlayerSettingsData();
 
-        voice = player.voice;
-        music = player.music;
-        sound = player.sound;
+        voice = player._voice;
+        music = player._music;
+        sound = player._sound;
 
-        gameLanguage = player.gameLanguage;
+        currentBackgroundNum = player._currentBackgroundNum;
+
+        lastBid = player._lastBid;
+        cardsTutorial = player._cardsTutorial;
+
+        gameLanguage = player._gameLanguage;
 
         Save();
     }
@@ -73,22 +71,32 @@ public class PlayerSettings : MonoBehaviour
 
     public void Load()
     {
-        var data = SaveManager.Load<SaveData.PlayerSettings>(saveKey);
+        var data = SaveManager.Load<SaveData.PlayerSettingsData>(saveKey);
 
         voice = data._voice;
         music = data._music;
         sound = data._sound;
 
+        currentBackgroundNum = data._currentBackgroundNum;
+
+        lastBid = data._lastBid;
+        cardsTutorial = data._cardsTutorial;
+
         gameLanguage = data._gameLanguage;
     }
 
-    private SaveData.PlayerSettings GetSaveSnapshot()
+    private SaveData.PlayerSettingsData GetSaveSnapshot()
     {
-        SaveData.PlayerSettings data = new SaveData.PlayerSettings()
+        SaveData.PlayerSettingsData data = new SaveData.PlayerSettingsData()
         {
             _voice = voice,
             _music = music,
             _sound = sound,
+
+            _currentBackgroundNum = currentBackgroundNum,
+
+            _lastBid = lastBid,
+            _cardsTutorial = cardsTutorial,
 
             _gameLanguage = gameLanguage,
         };

@@ -1,22 +1,26 @@
-using System.Collections;
-using System.Collections.Generic;
+
 using UnityEngine;
 using DG.Tweening;
+using TMPro;
+using UnityEngine.UI;
 
 public class TutorialBuyButton : MonoBehaviour
 {
     [SerializeField] GameObject mainObject;
-    [SerializeField] GameObject mainButton;
+    [SerializeField] Image mainImage;
     [SerializeField] GameObject buyButton;
     [SerializeField] TutorialArrow arrow;
+    [SerializeField] Image arrowImage;
+    [SerializeField] TMP_FontAsset priceFont;
+    [SerializeField] TextMeshProUGUI priceText;
+    [SerializeField] float priceTextSize;
 
     private bool isOpen;
-    private bool isMoving;
-    private TutorialScreen tutorialScreen;
 
-    public void Init(TutorialScreen tutorial)
+    public void Init()
     {
-        tutorialScreen = tutorial;
+        priceText.font = priceFont;
+        priceText.fontSize = priceTextSize;
         buyButton.transform.localScale = new Vector3(0, 1, 0);
         isOpen = false;
     }
@@ -37,24 +41,9 @@ public class TutorialBuyButton : MonoBehaviour
         }
     }
 
-    public void ActivateButton(int stepNum)
-    {
-        if(stepNum == 1)
-        tutorialScreen.ActivateBuyButton1();
-        
-        if(stepNum == 9)
-        tutorialScreen.ActivateBuyButton9();
-    
-        if(stepNum == 10)
-        tutorialScreen.ActivateBuyButton10();
-    }
-
-    public void SetActive(bool isActive)
-    {
-        mainObject.SetActive(isActive);
-    }
-
-    public Vector3 GetPosition() { return mainButton.transform.position; }
-
-    public void SwitchActive(bool isActive) { arrow.SetActive(isActive); }
+    public void SetActive(bool isActive) => mainObject.SetActive(isActive);
+    public Vector3 GetPosition() { return mainImage.transform.position; }
+    public void SetPosition(Vector3 newPos) => gameObject.transform.position = newPos;
+    public void SwitchActive(bool isActive) => arrow.SetActive(isActive);
+    public void SetMainSprite(Sprite newSprite) => mainImage.sprite = newSprite;
 }

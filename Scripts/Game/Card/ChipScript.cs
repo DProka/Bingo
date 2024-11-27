@@ -3,138 +3,184 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
 using DG.Tweening;
-using System.Collections;
+using System;
 
 public class ChipScript : MonoBehaviour, IPointerDownHandler
 {
-    [Header("Main Links")]
-
+    [SerializeField] ChipSettings settings;
     [SerializeField] Image imageChip;
     [SerializeField] Image imageFrame;
     [SerializeField] Image imageChest;
+    [SerializeField] Image imagePuzzle;
+    [SerializeField] Image imageAutoBingo;
+
+    public State currentState { get; private set; }
+    public Type currentType { get; private set; }
 
     private CardController cardController;
-    private BoosterController boosterController;
-    private bool canBeClicked;
-    private bool chipIsOpen;
-    private bool isBingoChip;
-    private bool isChestChip;
-    private Vector3 chipStartScale;
+    private bool isJackPotChip;
     private int chipNum;
 
-    [Header("Sprites")]
 
-    [SerializeField] Sprite standartChip;
-    [SerializeField] Sprite bingoChip;
-    [SerializeField] float animationTime = 0.3f;
-
-    public void Init(CardController card, BoosterController booster, int _chipNum)
+    public void Init(int _chipNum, CardController card)
     {
         cardController = card;
-        boosterController = booster;
         chipNum = _chipNum;
-
-        chipStartScale = imageChip.transform.localScale;
-        canBeClicked = false;
-        chipIsOpen = false;
-        isBingoChip = false;
-        isChestChip = false;
+        isJackPotChip = false;
+        SetChipState(State.Open);
     }
 
-    #region Chip Part
-
-    public void OpenChip()
+    public void SetChipState(State newState)
     {
-        imageFrame.gameObject.SetActive(false);
-        imageChest.gameObject.SetActive(false);
-        imageChip.gameObject.SetActive(true);
-        imageChip.sprite = standartChip;
-        chipIsOpen = true;
-        StartCoroutine(AnimateChipScale(0.1f));
+        currentState = newState;
 
-        if (isChestChip)
-            cardController.GetChestBonus(transform.position);
-
-        SetClick(false);
-        StartCoroutine(cardController.OpenChip(chipNum));
-    }
-
-    public void OpenOnStart()
-    {
-        imageFrame.gameObject.SetActive(false);
-        imageChip.gameObject.SetActive(true);
-        imageChip.sprite = standartChip;
-        chipIsOpen = true;
-        SetClick(false);
-    }
-
-    public void SetBingoChip()
-    {
-        imageChip.sprite = bingoChip;
-        isBingoChip = true;
-    }
-
-    public void OnPointerDown(PointerEventData eventData)
-    {
-        if (canBeClicked)
+        switch (newState)
         {
-            OpenChip();
-            boosterController.UpdateProgress();
-            cardController.ConfirmOpenedChip(chipNum);
+            case State.Open:
+                break;
+
+            case State.Active:
+                break;
+
+            case State.Closed:
+                imageChip.enabled = true;
+                imageChip.sprite = settings.chipSprites[0];
+                break;
+        
+            case State.Bingo:
+                imageChip.enabled = true;
+                if (!isJackPotChip)
+                    imageChip.sprite = settings.chipSprites[1];
+                break;
+        
+            case State.JackPot:
+                imageChip.enabled = true;
+                imageChip.sprite = settings.chipSprites[2];
+                isJackPotChip = true;
+                break;
+        
         }
     }
 
-    public IEnumerator AnimateChipScale(float delay)
+    public enum State
     {
-        Vector3 newScale = new Vector3(0.5f, 0.5f);
-        imageChip.transform.DOPunchScale(newScale, animationTime, 0).SetDelay(delay);
-
-        yield return new WaitForSeconds(delay + animationTime);
-
-        imageChip.transform.localScale = new Vector3(1, 1, 1);
+        Open,
+        Active,
+        Closed,
+        Bingo,
+        JackPot,
     }
 
-    public void SetClick(bool canClick) { canBeClicked = canClick; }
-
-    public void ResetChip()
+    public void SetChipType(Type newGroup)
     {
-        canBeClicked = false;
-        chipIsOpen = false;
-        isBingoChip = false;
-        isChestChip = false;
-        imageChip.gameObject.SetActive(false);
-        imageFrame.gameObject.SetActive(false);
-        imageChest.gameObject.SetActive(false);
-        imageChip.sprite = standartChip;
+        ResetChip();
+        currentType = newGroup;
+
+        switch (newGroup)
+        {
+            case Type.Basic:
+                break;
+        
+            case Type.Chest:
+                imageChest.enabled = true;
+                imageChest.transform.DOPunchScale(new Vector3(0.5f, 0.5f), settings.animationTime, 0).SetDelay(settings.animationDelay).OnComplete(() =>
+                {
+                    imageChest.transform.localScale = new Vector3(-0.9f, 0.9f, 0.9f);
+                });
+                SoundController.Instance.PlaySound(SoundController.Sound.SetChest);
+                break;
+        
+            case Type.Puzzle:
+                imagePuzzle.enabled = true;
+                break;
+
+            case Type.AutoBingo:
+                imageAutoBingo.enabled = true;
+                imageAutoBingo.transform.DOPunchScale(new Vector3(0.25f, 0.25f, 0f), settings.animationTime, 0).SetDelay(settings.animationDelay).OnComplete(() =>
+                {
+                    imageAutoBingo.transform.localScale = new Vector3(0.32f, 0.32f, 0f);
+                });
+                break;
+        }
     }
 
-    public bool CheckIsOpen() { return chipIsOpen; }
-
-    public bool CheckIsBingo() { return isBingoChip; }
-
-    #endregion
-
-    #region Frame Part
+    public enum Type
+    {
+        Basic,
+        Chest,
+        Puzzle,
+        AutoBingo
+    }
 
     public void OpenFrame(bool isActive)
     {
-        if(canBeClicked)
-            imageFrame.gameObject.SetActive(isActive);
-    }
-
-    #endregion
-
-    #region Chest Part
-
-    public void SetChestChip()
-    {
-        isChestChip = true;
-        imageChest.gameObject.SetActive(true);
+        if (currentState == State.Active)
+            imageFrame.enabled = isActive;
     }
 
     public void SetChestSprite(Sprite usedChest) { imageChest.sprite = usedChest; }
 
-    public bool CheckIsChest() { return isChestChip; }
+    public void OpenChip(bool tap)
+    {
+        ResetChip();
 
-    #endregion
+        if (tap)
+        {
+            EventBus.onChipClosed?.Invoke(chipNum, tap);
+            cardController.ConfirmOpenedChip(chipNum);
+        }
+
+        AnimateChipScale(settings.animationDelay);
+
+
+        switch (currentType)
+        {
+            case Type.Basic:
+                cardController.GetXPBonus(transform.position);
+                SoundController.Instance.PlaySound(SoundController.Sound.OpenChip);
+                break;
+        
+            case Type.Chest:
+                cardController.GetChestBonus(transform.position);
+                SoundController.Instance.PlaySound(SoundController.Sound.OpenChest);
+                break;
+        
+            case Type.Puzzle:
+                cardController.GetPuzzleBonus(transform.position);
+                //EventBus.onPuzzleOpened?.Invoke(transform.position);
+                SoundController.Instance.PlaySound(SoundController.Sound.OpenChest);
+                break;
+        
+            case Type.AutoBingo:
+                //cardController.GetAutoBingo(chipNum);
+                break;
+        }
+
+        SetChipState(State.Closed);
+        StartCoroutine(cardController.OpenChip(chipNum));
+    }
+
+    public void OnPointerDown(PointerEventData eventData)
+    {
+        if (currentState == State.Active)
+            OpenChip(true);
+    }
+
+    public void ResetChip()
+    {
+        imageChip.enabled = false;
+        imageFrame.enabled = false;
+        imageChest.enabled = false;
+        imagePuzzle.enabled = false;
+        imageAutoBingo.enabled = false;
+    }
+
+    public void AnimateChipScale(float delay)
+    {
+        Vector3 newScale = new Vector3(0.5f, 0.5f);
+        imageChip.transform.DOPunchScale(newScale, settings.animationTime, 0).SetDelay(delay).OnComplete(() =>
+        {
+            imageChip.transform.localScale = new Vector3(1, 1, 1);
+        });
+    }
 }

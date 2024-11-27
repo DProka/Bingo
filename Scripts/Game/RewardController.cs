@@ -1,81 +1,106 @@
 
 using UnityEngine;
 
-public class RewardController : MonoBehaviour
+public class RewardController
 {
-    private GameController gameController;
-
     [Header("Main Links")]
 
-    [SerializeField] UIEndScreen endScreen;
-    [SerializeField] NewLevelController levelController;
-
-    [Header("Reward Settings")]
-
-    private int startCoinBonus;
-    private int startMoneyBonus;
+    private int[] bingoRewardArray;
+    private int[] moneyRewardArray;
+    private int[] jackpotRewardArray;
 
     private int bingoCount;
     private int bingoBonus;
-
-    private int[] bingoRewardArray;
-
+    private int moneyBonus;
     private int jackpotLevel;
     private int jackpotBonus;
-
-    private int[] jackpotRewardArray;
-
     private int endCoinBonus;
     private int endMoneyBonus;
 
-    public void Init(GameController controller)
+    private int xpBonus;
+
+    private bool doubleCoinsActive;
+
+    public RewardController(TableSettings settings)
     {
-        gameController = controller;
+        EventBus.onRoundStarted += ResetEndBonus;
+        EventBus.onRewardRecieved += GetReward;
+
+        bingoRewardArray = settings.bingoRewardArray;
+        jackpotRewardArray = settings.jackpotRewardArray;
+        moneyRewardArray = settings.moneyRewardArray;
 
         jackpotLevel = 1;
     }
-
-    public void SetValues(int[] bingoRewards, int[] jackpotRewards)
-    {
-        bingoRewardArray = bingoRewards;
-        jackpotRewardArray = jackpotRewards;
-    }
-
-    public void ResetEndBonus()
+    
+    public void ResetEndBonus(int cardsCount = 0)
     {
         endCoinBonus = 0;
         endMoneyBonus = 0;
         
         bingoCount = 0;
         bingoBonus = 0;
+        moneyBonus = 0;
 
         jackpotLevel = 1;
         jackpotBonus = 0;
+
+        xpBonus = 0;
     }
 
     public void UpdateEndBonus(bool isCoins, int count)
     {
         if (isCoins)
             endCoinBonus += count;
-
         else
             endMoneyBonus += count;
+    }
+
+    public void UpdateXPBonus(int count)
+    {
+        xpBonus += count;
+
+        Debug.Log("Xp bonus in round = " + xpBonus);
     }
 
     public void GetReward()
     {
         CheckBingoBonus();
 
-        int bonusCoins = startCoinBonus + endCoinBonus + (bingoBonus * jackpotLevel) + jackpotBonus;
-        int bonusMoney = startMoneyBonus + endMoneyBonus;
+        int[] reward = CheckReward();
+        int bonusCoins = reward[0];
+        int bonusMoney = reward[1];
 
-        gameController.CalculateCoins(true, bonusCoins);
-        gameController.CalculateMoney(true, bonusMoney);
+        if (GameController.tutorialIsActive && GameController.tutorialManager.GetRoomProgress() < 3)
+        {
+            bonusCoins = 2000;   
+            bonusMoney = 50;   
+        }
 
-        endScreen.UpdateCardRewardText(bonusCoins, bonusMoney);
+        GameController.Instance.CalculateCoins(bonusCoins);
+        GameController.Instance.CalculateMoney(bonusMoney);
+        GameController.Instance.CalculateXP(xpBonus);
 
-        Debug.Log($"coins = {bonusCoins}, money = {bonusMoney}");
+        Debug.Log($"coins = {bonusCoins}, money = {bonusMoney}, xp = {xpBonus}");
+        AppmetricaTimeTracking.reportLevelEnd(bonusCoins, bonusMoney);
+        DesignManager.updateRoomCash?.Invoke(bonusCoins, bonusMoney);
     }
+
+    public int[] CheckReward()
+    {
+        //if (GameController.Instance.boosterManager.doubleCoinsIsActive)
+        //    bingoBonus = bingoBonus * 2;
+
+        int bonusCoins = endCoinBonus + (bingoBonus * jackpotLevel) + jackpotBonus;
+        int bonusMoney = (endMoneyBonus + (moneyBonus * 1)) * jackpotLevel;
+
+        if (doubleCoinsActive)
+            bonusCoins = bonusCoins * 2;
+
+        return new int[] { bonusCoins, bonusMoney };
+    }
+
+    public void SwitchDoubleCoinsActive(bool isActive) => doubleCoinsActive = isActive;
 
     #region Bingo Bonus
 
@@ -95,44 +120,23 @@ public class RewardController : MonoBehaviour
 
     private void CheckBingoBonus()
     {
-        if(bingoCount == 0)
-            bingoBonus = bingoRewardArray[0];
-        
-        if(bingoCount == 1)
-            bingoBonus = bingoRewardArray[1];
-        
-        if(bingoCount == 2)
-            bingoBonus = bingoRewardArray[2];
-        
-        if(bingoCount >= 3)
+        if(bingoCount <= 3)
+        {
+            bingoBonus = bingoRewardArray[bingoCount];
+            moneyBonus = moneyRewardArray[bingoCount];
+        }
+        else
+        {
             bingoBonus = bingoRewardArray[3];
+            moneyBonus = moneyRewardArray[3];
+        }
     }
     #endregion
 
     #region Jackpot Bonus
 
-    public void UpdateJackpotLevel(int lvl)
-    {
-        jackpotLevel = lvl;
-    }
-
-    public void UpdateJackpotBonus() 
-    {
-        if(jackpotLevel == 1)
-            jackpotBonus = jackpotRewardArray[0]; 
+    public void UpdateJackpotLevel(int lvl) { jackpotLevel = lvl; }
     
-        if(jackpotLevel == 2)
-            jackpotBonus = jackpotRewardArray[1]; 
-    
-        if(jackpotLevel == 3)
-            jackpotBonus = jackpotRewardArray[2]; 
-    
-        if(jackpotLevel == 4)
-            jackpotBonus = jackpotRewardArray[3]; 
-    
-        if(jackpotLevel == 5)
-            jackpotBonus = jackpotRewardArray[4]; 
-    }
-
+    public void UpdateJackpotBonus() { jackpotBonus = jackpotRewardArray[jackpotLevel - 1]; }
     #endregion
 }

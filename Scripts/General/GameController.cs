@@ -1,86 +1,73 @@
 ﻿
-using System;
-using System.Collections;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 public class GameController : MonoBehaviour
 {
-    [Header("Data Links")]
+    public static GameController Instance;
 
-    [SerializeField] GeneralSave generalSave;
-    [SerializeField] RoomSave roomSave;
+    public FirebaseController firebaseController { get; private set; }
+    public GeneralSave generalSave { get; private set; }
 
-    [Header("Game Settings")]
+    public BoosterManager boosterManager { get; private set; }
 
-    [SerializeField] CoreValuesManager valuesManager;
+    public int playerCoins => statistics.playerCoins;
+    public int playerMoney => statistics.playerMoney;
+    public int playerCrystals => statistics.playerCrystals;
 
-    [SerializeField] float firstLoadTime;
-    private float loadTimer;
-    private bool gameIsLoaded;
+    public int playedRoundsCount => statistics.playedRoundsCount;
 
-    public int playerCoins;
-    public int playerMoney;
-    public int playerLvl;
+    public int currentXPLevel => statistics.currentXPLevel;
+    public int currentXPPoints => statistics.currentXPPoints;
+    public int previousXPPointsValue => statistics.previousXPPointsValue;
+    public int xpPointsToNextLevel => statistics.playerXPLevelsArray[currentXPLevel];
 
-    private bool gameIsActive;
+    public bool gameIsActive { get; private set; }
 
-    [Header("Reward")]
-
-    [SerializeField] RewardController rewardController;
-
-    [Header("UI Links")]
-
+    [SerializeField] CoreGameSettings settings;
     [SerializeField] UIController uiController;
-
-    [Header("Table")]
-
     [SerializeField] TableController tableController;
-    private float ballGenSpeed;
-    private float ballGenSpeedLvl3;
-    private float ballGenSpeedLvl10;
-    
-    private float ballGenTimer;
-
-    private int openedCards;
-    private int bingosCount;
-    private int jackpotLevel;
-
-    [Header("Sound Controller")]
-
     [SerializeField] SoundController soundController;
 
-    [Header("Tutorial")]
+    private PlayerStatistics statistics;
+    private RewardController rewardController;
+
+    private float loadTimer;
+    private bool gameIsLoaded;
+    private int bonusMoney;
+    private int bonusCrystals;
+    private int jackpotLevel;
 
     public static TutorialManager tutorialManager;
-
     public static bool tutorialIsActive;
 
-    void Awake()
+    private int tutorialRoomProgress;
+    private int tutorialGameProgress;
+
+    private void Awake()
     {
+        Instance = this;
         gameIsLoaded = false;
-        gameIsActive = false;
+        SwitchGameIsActive(false);
 
         tutorialIsActive = false;
-
-        generalSave.Load();
-        roomSave.Load();
-        playerCoins = generalSave.GetCoins();
-        playerMoney = generalSave.GetMoney();
-        playerLvl = generalSave.GetLevel();
-
-        tableController.Init(this);
-        ballGenTimer = ballGenSpeed;
-
-        rewardController.Init(this);
-
-        soundController.Init();
-
-        uiController.Init();
-
         tutorialManager = GetComponent<TutorialManager>();
-        tutorialManager.Init(this, uiController);
 
-        valuesManager.Init(this, tableController, rewardController);
+        generalSave = new GeneralSave();
+        generalSave.Load();
+
+        statistics = new PlayerStatistics(generalSave, settings.statsSettings.xpPointsOnLevelArray);
+        rewardController = new RewardController(settings.tableSettings);
+        boosterManager = new BoosterManager(tableController, settings.tableSettings);
+        
+        tableController.Init(settings.tableSettings, rewardController, boosterManager);
+        soundController.Init();
+        uiController.Init(settings.uiSettings, settings.tableSettings);
+        tutorialManager.Init(this, uiController.GetCurrentRoom());
+
+        firebaseController = new FirebaseController();
+
+        EventBus.onRoundEnded += CloseEndRoundScreen;
     }
 
     private void FixedUpdate()
@@ -90,12 +77,23 @@ public class GameController : MonoBehaviour
         if (gameIsActive)
         {
             tableController.UpdateTable();
-            UpdateBallGenerator();
+        }
+        else
+        {
+            boosterManager.UpdateTimer();
         }
 
         if (tutorialIsActive)
         {
             tutorialManager.UpdateTutorial();
+        }
+
+        tableController.UpdateAlways();
+
+
+        if (Input.GetKeyDown(KeyCode.Escape))
+        {
+            uiController.CallExitScreen();
         }
     }
 
@@ -103,102 +101,107 @@ public class GameController : MonoBehaviour
     {
         if (!gameIsLoaded)
         {
-            if (loadTimer < firstLoadTime)
-            {
+            if (loadTimer < settings.uiSettings.firstLoadingTime)
                 loadTimer += Time.fixedDeltaTime;
-                uiController.UpdateLoadinrScreenBar();
-            }
+
             else
             {
                 gameIsLoaded = true;
-                uiController.CloseLoadingScreen();
-                uiController.OpenMainMenu();
+                uiController.CallScreen(UIController.Menu.MainMenu);
+                uiController.CheckRoomIsPassed();
                 CheckTutorial();
+
+                AppMetrica.reportEvent("Loading_end", "");
             }
         }
     }
 
-    public void SwitchGameIsActive(bool isActive) { gameIsActive = isActive; }
-
-    public void SetValues(float _ballGenSpeed, float _ballGenSpeedLvl3, float _ballGenSpeedLvl10) 
-    { 
-        ballGenSpeed = _ballGenSpeed;
-        ballGenSpeedLvl3 = _ballGenSpeedLvl3;
-        ballGenSpeedLvl10 = _ballGenSpeedLvl10;
+    public void SetFirebaseSettings()
+    {
+        uiController.SetFirebaseSettings();
     }
+
+    public void SwitchGameIsActive(bool isActive) => gameIsActive = isActive;
 
     #region Game Code
 
-    public IEnumerator StartGameLogic(int _tableCount)
+    public void StartGameLogic(int _tableCount)
     {
-        tableController.StartGameLogic(_tableCount);
+        tutorialManager.SwitchTutorialVisibility(false);
 
-        rewardController.ResetEndBonus();
-        rewardController.UpdateJackpotLevel(jackpotLevel);
+        if (tutorialIsActive && tutorialManager.GetGameProgress() < 5)
+            StartTutorialGame();
 
-        soundController.PlayStart();
-
-        yield return new WaitForSeconds(3f);
-        
-        ballGenTimer = 0.2f;
-        gameIsActive = true;
-    }
-
-    public void UpdateBallGenerator()
-    {
-        if (tableController.CheckAvailableBalls())
+        else
         {
-            if (ballGenTimer > 0)
-                ballGenTimer -= Time.fixedDeltaTime;
+            EventBus.onRoundStarted?.Invoke(_tableCount);
 
-            else
-            {
-                tableController.GenerateNewBall();
-                soundController.PlayNumber(tableController.GetNewBallNum());
-
-                if (playerLvl <= 3)
-                    ballGenTimer = ballGenSpeed;
-                else if (playerLvl <= 10)
-                    ballGenTimer = ballGenSpeedLvl3;
-                else
-                    ballGenTimer = ballGenSpeedLvl10;
-            }
+            tableController.StartGameLogic(_tableCount, jackpotLevel);
+            rewardController.UpdateJackpotLevel(jackpotLevel);
+            soundController.PlayStart();
+            SetBallGenTimer(4f);
+            SwitchGameIsActive(true);
         }
+
+        AppMetrica.reportEvent("Level_start", "" + playedRoundsCount);
     }
 
     public void CheckBallNumber(int ballNum) { tableController.CheckBallNumber(ballNum); }
 
-    public void SetBallGenTimer(float time) { ballGenTimer = time; }
+    public void SetBallGenTimer(float time) { tableController.SetBallGenTimer(time); }
 
-    public void SetChestSprites(Sprite usedChest) { tableController.SetChestSprite(usedChest); }
     #endregion
 
     #region Victory State
 
     public void EndRound()
     {
-        gameIsActive = false;
+        SwitchGameIsActive(false);
 
-        IncreasePlayerLvl(1);
+        IncreaseRoundCount(1);
+        int[] reward = rewardController.CheckReward();
+        UIController.Instance.UpdateEndRoundScreen(reward[0], reward[1]);
         uiController.OpenRoundOverScreen();
         uiController.UpdateMainUI();
-        rewardController.GetReward();
     }
 
-    public void CloseEndRoundScreen()
-    {
-        playerLvl++;
+    public void StartCardsEndRoundMove() => tableController.SwitchCardsPlace();
 
+    public void CheckTutorialSteps()
+    {
         if (tutorialIsActive)
-            UpdateTutorialProgress(9);
+        {
+            tutorialManager.HideGameTutorial();
+            tutorialManager.SwitchTutorialVisibility(true);
+
+            if (tutorialManager.GetRoomProgress() < 4)
+            {
+                tutorialManager.UpdateRoomProgress(4);
+                tutorialManager.UpdateGameProgress(5);
+            }
+        }
     }
 
     public void SetJackpotLevel(int lvl) { jackpotLevel = lvl; }
+
+    private void CloseEndRoundScreen()
+    {
+        tableController.ResetBoosters();
+        boosterManager.ResetActiveBoosters();
+
+        if (generalSave.rateUs == 0)
+            EventBus.onRewardRecieved?.Invoke();
+        else
+            MaxSdkManager.Instance.ShowInterstitial("EndOfRound");
+
+        CheckNumStep();
+    }
+
     #endregion
 
     #region Tutorial
 
-    public void SetTutorialDone() 
+    public void FinishTutorial()
     {
         uiController.SwitchDesignManagerVisible(true);
         tutorialIsActive = false;
@@ -210,8 +213,8 @@ public class GameController : MonoBehaviour
         uiController.StartTutorialGame();
 
         tableController.StartTutorialGame();
+        EventBus.onRoundStarted?.Invoke(1);
 
-        rewardController.ResetEndBonus();
         rewardController.AddBonus(false, 100);
     }
 
@@ -220,8 +223,8 @@ public class GameController : MonoBehaviour
         if (!gameIsActive)
         {
             soundController.PlayStart();
-            ballGenTimer = 3f;
-            gameIsActive = true;
+            SetBallGenTimer(3f);
+            SwitchGameIsActive(true);
         }
     }
 
@@ -230,68 +233,128 @@ public class GameController : MonoBehaviour
         tableController.CloseTutorialChip(false, chipNum);
     }
 
-    public void UpdateTutorialProgress(int step)
-    {
-        if (tutorialIsActive)
-            tutorialManager.UpdateTutorialProgress(step);
-    }
-
     private void CheckTutorial()
     {
-        if (generalSave.GetTutorialStatus() == 1)
+        tutorialManager.HideSteps();
+
+        if (generalSave.tutorStatus == 1)
         {
             tutorialIsActive = false;
         }
-        else if (generalSave.GetTutorialStatus() == 0)
+        else if (generalSave.tutorStatus == 0)
         {
             tutorialIsActive = true;
-            playerLvl = 1;
-            tutorialManager.StartTutorial();
-            uiController.SetTutorialMenu();
+
+            tutorialRoomProgress = generalSave.GetTutorialProgress()[0];
+            tutorialGameProgress = generalSave.GetTutorialProgress()[1];
+
+            if (tutorialRoomProgress < 4)
+            {
+                ResetProgress();
+                statistics.SetParametersByTutorial(true);
+                tutorialManager.StartTutorial();
+                uiController.SetTutorialMenu();
+
+                tutorialRoomProgress = 0;
+                tutorialGameProgress = 0;
+                UpdateTutorialProgress();
+            }
+            else
+            {
+                statistics.SetParametersByTutorial(false);
+                tutorialManager.UpdateRoomProgress(tutorialRoomProgress);
+                tutorialManager.UpdateGameProgress(5);
+            }
         }
     }
 
-    public void SwitchKeepGoingScreen()
+    private void CheckNumStep()
     {
-        if(tutorialIsActive && generalSave.GetTutorialStatus() <= 9)
+        if (playedRoundsCount == 20)
         {
-            tutorialManager.SwitchKeepGoingScreen(true);
+            tutorialManager.CallScreenByNum(6);
         }
     }
 
+    public void UpdateTutorialProgress()
+    {
+        tutorialRoomProgress = tutorialManager.GetRoomProgress();
+        tutorialGameProgress = tutorialManager.GetGameProgress();
+
+        generalSave.UpdateTutorialProgress(tutorialRoomProgress, tutorialGameProgress);
+    }
+
+    public void SkipTutorial()
+    {
+        ResetProgress();
+        generalSave.SetTutorialStatus(1);
+        IncreaseRoundCount(1);
+        SceneManager.LoadScene(0);
+    }
     #endregion
 
     #region Player Data
 
-    public void CalculateCoins(bool isPlus, int count)
+    public void CalculateCoins(int count)
     {
-        generalSave.CalculateCoins(isPlus, count);
-
-        playerCoins = generalSave.GetCoins();
+        statistics.CalculateCoins(count);
         uiController.UpdateMainUI();
     }
 
-    public void CalculateMoney(bool isPlus, int count)
+    public void CalculateMoney(int count)
     {
-        generalSave.CalculateMoney(isPlus, count);
+        statistics.CalculateMoney(count);
+        uiController.UpdateMainUI();
+        bonusMoney = count;
+    }
+    
+    public void CalculateCrystals(int count)
+    {
+        statistics.CalculateCrystals(count);
+        uiController.UpdateMainUI();
+        bonusCrystals = count;
+    }
+    
+    public void CalculateXP(int points)
+    {
+        statistics.CalculateXP(points);
+        uiController.StartXPProgressAnimation();
+        Debug.Log("XP points = " + currentXPPoints + " XP bonus = " + points);
+    }
 
-        playerMoney = generalSave.GetMoney();
+    public int GetCurrentRoomNum() { return generalSave.currentRoomNum + 1; }
+
+    public void IncreaseRoundCount(int lvl)
+    {
+        statistics.IncreaseRoundCount(lvl);
         uiController.UpdateMainUI();
     }
 
-    public int GetPlayerLevel() { return playerLvl; }
-
-    public void IncreasePlayerLvl(int lvl)
+    public void CheckRateUs()
     {
-        playerLvl += lvl;
-        generalSave.UpdatePlayerLvl(playerLvl);
-        uiController.UpdateMainUI();
+        if (generalSave.rateUs == 1)
+            return;
+
+        if (playedRoundsCount > 4 && bonusMoney > 100)
+        {
+            generalSave.UpdateRateUs();
+            UIController.Instance.CallScreen(UIController.Menu.RateUsScreen);
+        }
     }
+
+    #endregion
 
     public void ResetProgress()
     {
         generalSave.ResetSave();
-        roomSave.ResetSave();
+        uiController.ResetSave();
+        statistics.ResetStatistics();
+        boosterManager.ResetSave();
+        PlayerPrefs.DeleteAll();
     }
-    #endregion
+
+    private void OnDestroy()
+    {
+        EventBus.onRoundEnded -= CloseEndRoundScreen;
+    }
 }

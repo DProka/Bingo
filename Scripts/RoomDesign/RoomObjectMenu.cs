@@ -1,94 +1,133 @@
 
 using UnityEngine;
-using UnityEngine.UI;
 using DG.Tweening;
 using System.Collections;
 
-public class RoomObjectMenu : UIMenuGeneral
+public class RoomObjectMenu : MonoBehaviour
 {
-    private DesignManager designManager;
+    public bool isOpen { get; private set; }
 
     [SerializeField] float topPos = -420f;
     [SerializeField] float lowerPos = -1000f;
-
     [SerializeField] float movingTime;
 
-    private bool isOpen;
+    private DesignManager designManager;
+    private bool isAD;
+    private int choosenSprite;
+    private bool isFirstOpen;
 
-    [Header("Variants Back")]
+    [Header("Variants")]
 
-    [SerializeField] Sprite variantActive;
-    [SerializeField] Sprite variantNotActive;
+    [SerializeField] ObjectVariantPrefab[] menuObjectsArray;
 
-    [SerializeField] Image[] variantsBackArray;
-
-    [Header("Variants Front")]
-
-    [SerializeField] Image[] variantsArray;
-
-    private Sprite[] currentSpritesArray;
-    private string keyCode;
-
-    public void Init(DesignManager manager) { designManager = manager; }
-
-    public void SetSprites(Sprite[] array)
+    public void Init(DesignManager manager)
     {
-        currentSpritesArray = array;
+        designManager = manager;
+        CloseMain();
 
-        for (int i = 0; i < currentSpritesArray.Length; i++)
+        EventBus.onRewardedADClosed += UpdateSpriteAfterAD;
+    }
+
+    public void SetActiveVariantByNum(int num)
+    {
+        ResetVariants();
+
+        if (num > 0)
+            menuObjectsArray[num - 1].SetActive(true);
+        else
+            menuObjectsArray[num].SetActive(true);
+
+        if (isFirstOpen)
+            SwitchADActive(false);
+    }
+
+    private void ResetVariants()
+    {
+        foreach (ObjectVariantPrefab var in menuObjectsArray)
         {
-            variantsArray[i].sprite = currentSpritesArray[i];
+            var.SetActive(false);
         }
     }
 
-    public void SetKey(string key) { keyCode = key; }
+    public void SwitchADActive(bool adIsActive)
+    {
+        foreach (ObjectVariantPrefab obj in menuObjectsArray)
+        {
+            obj.SwitchADIsActive(adIsActive);
+        }
+    }
 
-    public string GetKey() { return keyCode; }
+    #region Sprites
 
     public void ChooseSprite(int num)
     {
-        designManager.UpdateObjectSprite(keyCode, num, currentSpritesArray[num]);
-        SetActiveBack(num);
-        //designManager.HideTutorialFloorScreen();
-        GameController.tutorialManager.HideFloorColorScreen();
-    }
-
-    public void ConfirmSprite() { designManager.ConfirmSprite(); }
-
-    private void SetActiveBack(int num)
-    {
-        foreach (Image img in variantsBackArray)
+        if (!menuObjectsArray[num - 1].active)
         {
-            img.transform.DOScale(1f, 0.3f);
+            choosenSprite = num;
+
+            if (isFirstOpen)
+                UpdateNewSprite();
+            else
+                MaxSdkManager.Instance.ShowRewarded("ObjectNewSprite");
         }
 
-        ResetVariantBack();
-        variantsBackArray[num].sprite = variantActive;
-
-        variantsBackArray[num].transform.DOScale(1.3f, 0.3f);
+        if (GameController.tutorialIsActive)
+            GameController.tutorialManager.CloseFloorColorScreen();
     }
 
-    private void ResetVariantBack()
+    public void ConfirmSprite()
     {
-        for (int i = 0; i < variantsBackArray.Length; i++)
+        designManager.ConfirmSprite();
+
+        if (GameController.tutorialIsActive)
+            GameController.tutorialManager.CloseFloorColorScreen();
+    }
+
+    private void UpdateSpriteAfterAD(string location)
+    {
+        if (location == "ObjectNewSprite")
+            UpdateNewSprite();
+    }
+
+    private void UpdateNewSprite()
+    {
+        if (isOpen)
         {
-            variantsBackArray[i].sprite = variantNotActive;
+            designManager.UpdateObjectSprite(choosenSprite);
+            SetActiveVariantByNum(choosenSprite);
         }
     }
+
+    private void SetSprites(Sprite[] newSpritesArray)
+    {
+        for (int i = 0; i < menuObjectsArray.Length; i++)
+        {
+            menuObjectsArray[i].SetMainSprite(newSpritesArray[i]);
+        }
+    }
+
+    #endregion
+
     #region Main Window
 
-    public bool GetStatus() { return isOpen; }
-
-    public override void OpenMain()
+    public void OpenMain(bool _isFirstOpen, Sprite[] newSpritesArray, bool _isAD, int activeSpriteNum)
     {
-        foreach (Image img in variantsBackArray)
-        {
-            img.transform.DOScale(1f, 0f);
-        }
+        gameObject.SetActive(true);
+
+        isFirstOpen = _isFirstOpen;
+        isAD = _isAD;
+
+        SetSprites(newSpritesArray);
+
+        ResetVariants();
+        SwitchADActive(isFirstOpen ? false : true);
+        menuObjectsArray[0].gameObject.SetActive(isAD ? false : true);
+        SetActiveVariantByNum(activeSpriteNum);
 
         transform.DOLocalMoveY(topPos, movingTime);
-        ResetVariantBack();
         isOpen = true;
+
+        SoundController.Instance.PlaySound(SoundController.Sound.ButtonClick2);
     }
 
     public IEnumerator CloseWindow()
@@ -100,10 +139,15 @@ public class RoomObjectMenu : UIMenuGeneral
         CloseMain();
     }
 
-    public override void CloseMain()
+    public void CloseMain()
     {
+        gameObject.SetActive(false);
         isOpen = false;
-        keyCode = " ";
     }
     #endregion
+
+    private void OnDestroy()
+    {
+        EventBus.onRewardedADClosed -= UpdateSpriteAfterAD;
+    }
 }

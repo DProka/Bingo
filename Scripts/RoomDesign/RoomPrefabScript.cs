@@ -1,98 +1,143 @@
-using System.Collections;
-using System.Collections.Generic;
+
 using UnityEngine;
-using UnityEngine.UI;
 
 public class RoomPrefabScript : MonoBehaviour
 {
     [Header("Main Links")]
 
+    private RoomSave roomSave;
     private DesignManager designManager;
-    [SerializeField] RoomDesignBase roomBase;
+    private string roomName;
 
     [Header("Objects")]
 
     [SerializeField] Transform parentObject;
+    [SerializeField] GameObject clearRoom;
+
+    public int adObjectID { get; private set; }
+
+    public int currentTier;
+    public int[] openedObjectsArray;
+    public int[] spritesArray;
 
     private RoomObjectScript[] objectsArray;
-    private int currentTier;
-    private int[] openedObjectsArray;
+    private int[] cashInRoom;
 
-    public void Init(DesignManager manager, int tier)
+    public void Init(DesignManager manager, int[] pricesArray)
     {
         designManager = manager;
-        currentTier = tier;
 
-        roomBase.Init();
+        roomSave = GetComponent<RoomSave>();
+        roomSave.Load();
 
-        SetObjectsArray();
+        SetObjectsArray(pricesArray);
+        LoadPrefab();
+        CheckObjectsStatus();
+        CheckTierIsOpen();
     }
 
-    public void LoadRoomPrefab(int tier, int[] spriteNumbersArray)
+    public void UpdateRoomCash(int[] cash)
     {
-        currentTier = tier;
+        if (cashInRoom != null)
 
-        foreach (RoomObjectScript obj in objectsArray)
-        {
-            int objTier = obj.GetTier();
-            string objKey = obj.GetKey();
+            cashInRoom[0] += cash[0];
+        cashInRoom[1] += cash[1];
 
-            obj.SetImage(roomBase.GetArrayByKey(objKey)[spriteNumbersArray[objTier - 1]]);
-            obj.SetPrice(roomBase.priceArray[objTier - 1]);
+        Debug.Log($"In room earned coins: {cashInRoom[0]}, cash {cashInRoom[1]}");
 
-            if (objTier <= tier)
-            {
-                obj.SetActive(true);
-                obj.SetIsOpen(true);
-            }
-            else if (objTier == tier + 1)
-            {
-                obj.SetActive(true);
-            }
-        }
+        SavePrefab();
     }
 
-    public void ActivateTier(int tier)
+    public Sprite[] GetShortSpritesByName(string key) { return GetRoomObject(key).GetShortSprites(); }
+
+    public RoomObjectScript[] GetFirstTwoObjects()
     {
-        currentTier = tier;
-
-        foreach (RoomObjectScript obj in objectsArray)
-        {
-            if (obj.GetTier() == tier)
-                obj.SetActive(true);
-        }
+        RoomObjectScript[] objArray = new RoomObjectScript[] { objectsArray[0], objectsArray[1] };
+        return objArray;
     }
 
-    public bool GetTierOpenStatus(int tier)
+    #region Room
+
+    public void CheckTierIsOpen()
     {
         int count = 0;
         int isOpen = 0;
 
         foreach (RoomObjectScript obj in objectsArray)
         {
-
-            if (obj.GetTier() == tier)
+            if (obj._tier == currentTier && !obj._isAD)
             {
                 count++;
 
-                if (obj.GetStatus())
+                if (obj.isOpen)
                     isOpen++;
             }
         }
 
         if (count == isOpen)
-            return true;
-        else
-            return false;
+            currentTier += 1;
+
+        foreach (RoomObjectScript obj in objectsArray)
+        {
+            if (obj._tier == currentTier && openedObjectsArray[obj.id] == 0)
+            {
+                openedObjectsArray[obj.id] = 1;
+                obj.SetObjectStatus(RoomObjectScript.Status.isOpen);
+            }
+        }
+
+        CheckRoomIsPassed();
     }
 
-    public RoomObjectScript GetRoomObject(string key) 
+    public void CallObjectMenu(RoomObjectScript obj) { designManager.CallObjectMenu(obj, false); }
+
+    public bool CheckObjectsPurchased()
+    {
+        bool purchased = true;
+
+        for (int i = 0; i < objectsArray.Length; i++)
+        {
+            if (!objectsArray[i]._isAD)
+            {
+                if (openedObjectsArray[i] == 0 || openedObjectsArray[i] == 1)
+                    purchased = false;
+            }
+        }
+
+        return purchased;
+    }
+
+    private int GetHighestTier()
+    {
+        int tier = 0;
+
+        for (int i = 0; i < objectsArray.Length; i++)
+        {
+            if (objectsArray[i]._tier > tier)
+            {
+                tier = objectsArray[i]._tier;
+            }
+        }
+
+        return tier;
+    }
+
+    private void CheckRoomIsPassed()
+    {
+        if (CheckObjectsPurchased())
+            AppmetricaTimeTracking.reportRoomFinished(roomName, cashInRoom[0], cashInRoom[1]);
+    }
+    #endregion
+
+    #region Objects
+
+    public RoomObjectScript GetRoomObject(string key)
     {
         RoomObjectScript usedObj = objectsArray[0];
 
         foreach (RoomObjectScript obj in objectsArray)
         {
-            if (obj.GetKey() == key)
+            if (obj.gameObject.name == key)
             {
                 usedObj = obj;
                 break;
@@ -102,49 +147,159 @@ public class RoomPrefabScript : MonoBehaviour
         return usedObj;
     }
 
-    public void UpdateObjectSprite(string key, int spriteNum, Sprite sprite)
+    public void PurchaseObject(int id, int price)
     {
-        foreach (RoomObjectScript obj in objectsArray)
+        if (GameController.Instance.playerMoney >= price)
         {
-            if (obj.GetKey() == key)
-            {
-                obj.SetImage(sprite);
-                designManager.UpdateRoomObjectsArray(obj.GetTier(), spriteNum);
-            }
+            openedObjectsArray[id] = 2;
+            spritesArray[id] = 1;
+            currentTier = objectsArray[id]._tier;
         }
+
+        designManager.BuyObject(objectsArray[id], price);
+
+        CheckClearRoom();
+        SavePrefab();
+    }
+
+    public void UpdateObjectSprite(string key, int id, int spriteNum)
+    {
+        objectsArray[id].SetImage(spriteNum - 1);
+        spritesArray[id] = spriteNum;
     }
 
     public void SwitchActiveButtons(bool isVisible)
     {
         foreach (RoomObjectScript obj in objectsArray)
         {
-            if (obj.GetTier() == currentTier && !obj.GetStatus())
+            if (obj._tier == currentTier && !obj.isOpen)
             {
-                obj.SwitchBuyButtonAvtive(isVisible);
+                obj.SwitchBuyButtonActive(isVisible);
             }
         }
     }
 
-    public int GetObjectsCount() { return objectsArray.Length; }
+    public void SwitchButtonsCanBeClicked(bool canClick)
+    {
+        foreach (RoomObjectScript obj in objectsArray)
+        {
+            if (obj._tier == currentTier && !obj.isOpen)
+            {
+                obj.SwitchButtonCanBeClicked(canClick);
+            }
+        }
+    }
 
-    private void SetObjectsArray()
+    public int GetActiveObjectSpriteByNum(int num) { return spritesArray[num]; }
+
+    public void SetObjectsPrices(int[] pricesArray)
+    {
+        for (int i = 0; i < parentObject.childCount; i++)
+        {
+            objectsArray[i].SetPrice(pricesArray[objectsArray[i]._tier - 1]);
+        }
+    }
+
+    private void SetObjectsArray(int[] pricesArray)
     {
         objectsArray = new RoomObjectScript[parentObject.childCount];
 
         for (int i = 0; i < parentObject.childCount; i++)
         {
             objectsArray[i] = parentObject.GetChild(i).GetComponent<RoomObjectScript>();
-            objectsArray[i].Init(designManager);
-        }
+            objectsArray[i].Init(this, i);
+            objectsArray[i].SetPrice(pricesArray[objectsArray[i]._tier - 1]);
 
-        HideAllObjects();
+            if (objectsArray[i]._isAD)
+                adObjectID = i;
+        }
     }
 
-    private void HideAllObjects()
+    private void CheckClearRoom()
+    {
+        if (currentTier >= 4)
+            clearRoom.SetActive(false);
+        else
+            clearRoom.SetActive(true);
+    }
+
+    private void CheckObjectsStatus()
     {
         foreach (RoomObjectScript obj in objectsArray)
         {
-            obj.SetIsOpen(false);
+            int objID = obj.id;
+
+            switch (openedObjectsArray[obj.id])
+            {
+                case 0:
+                    obj.SetObjectStatus(RoomObjectScript.Status.isClosed);
+                    break;
+
+                case 1:
+                    obj.SetObjectStatus(RoomObjectScript.Status.isOpen);
+                    if (openedObjectsArray[objID] == 0)
+                        openedObjectsArray[objID] = 1;
+                    break;
+
+                case 2:
+                    obj.SetObjectStatus(RoomObjectScript.Status.isPurchased);
+                    int objSpriteNum = spritesArray[objID];
+                    if (objSpriteNum == 0)
+                    {
+                        if (obj._isAD)
+                            objSpriteNum = 2;
+                        else
+                            objSpriteNum = 1;
+                    }
+                    obj.SetImage(objSpriteNum - 1);
+                    break;
+            }
         }
+
+        CheckClearRoom();
     }
+    #endregion
+
+    #region AD Object
+
+    public RoomObjectScript GetADObject() { return objectsArray[adObjectID]; }
+
+    public void PurchaseADObject()
+    {
+        objectsArray[adObjectID].SetObjectStatus(RoomObjectScript.Status.isPurchased);
+        openedObjectsArray[adObjectID] = 2;
+        CheckTierIsOpen();
+    }
+
+    #endregion
+
+    #region Save/Load
+
+    public void LoadPrefab()
+    {
+        roomName = roomSave.GetRoomName();
+        currentTier = roomSave.GetTierProgress();
+
+        Debug.Log("RoomSave Array Length: " + roomSave.GetOpenArray().Length);
+
+        if (roomSave.GetOpenArray().Length <= 1)
+        {
+            openedObjectsArray = new int[objectsArray.Length];
+            spritesArray = new int[objectsArray.Length];
+        }
+        else
+        {
+            openedObjectsArray = roomSave.GetOpenArray();
+            spritesArray = roomSave.GetSpriteArray();
+        }
+        Debug.Log("RoomHighest Tier: " + GetHighestTier());
+        Debug.Log("RoomSave Array Length: " + openedObjectsArray.Length);
+
+        cashInRoom = roomSave.GetCashRoomBonus();
+    }
+
+    public void SavePrefab() { roomSave.SaveRoomProgress(currentTier, openedObjectsArray, spritesArray, cashInRoom); }
+
+    public void ResetSave() { roomSave.ResetSave(); }
+    #endregion
 }

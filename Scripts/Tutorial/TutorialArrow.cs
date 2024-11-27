@@ -22,7 +22,6 @@ public class TutorialArrow : MonoBehaviour
     public void SetActive(bool active) 
     { 
         isActive = active;
-        //startPos = transform.position;
 
         if (isActive && !isMoving)
             StartCoroutine(AnimateArrow());
@@ -39,8 +38,10 @@ public class TutorialArrow : MonoBehaviour
             dir = -15f;
 
         Vector3 newPos = new Vector3(startPos.x, startPos.y + dir);
-
         transform.DOPunchPosition(newPos, animationTime - 0.5f, 0, 1).SetDelay(0.5f);
+
+        //Vector3 newPos = new Vector3(startPos.x, startPos.y + dir);
+        //transform.DOPunchPosition(newPos, animationTime - 0.5f, 0, 1);//.SetDelay(0.5f);
 
         yield return new WaitForSeconds(animationTime);
 
